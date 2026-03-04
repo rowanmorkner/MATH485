@@ -1,0 +1,57 @@
+---
+title: "Assignment 2: Recursive Feature Elimination with Linear Regression"
+author: "Rowan Morkner"
+date: "2026-03-03"
+format: pdf
+---
+
+## Introduction
+
+This report presents the results of applying Recursive Feature Elimination (RFE) with linear regression to the scikit-learn Diabetes dataset. The dataset contains 442 samples with 10 features (age, sex, bmi, bp, and six blood serum measurements s1--s6) and a continuous target measuring disease progression one year after baseline.
+
+## Baseline Model
+
+A linear regression model trained on all 10 features (80/20 train/test split) achieved an R^2^ of **0.4526** on the test set. The features with the largest absolute coefficients were s1 (-931.49), s5 (736.20), and bmi (542.43). The data is already normalized by sklearn so no additional scaling was needed.
+
+## RFE Results
+
+RFE was performed iteratively from 10 features down to 1. At each step, a linear regression was fit, and the feature with the smallest absolute coefficient was eliminated.
+
+| Features | R^2^   | Improvement |
+|----------|--------|-------------|
+| 10       | 0.4526 | --          |
+| 9        | 0.4587 | +0.0061     |
+| 8        | 0.4559 | -0.0028     |
+| 7        | 0.4583 | +0.0024     |
+| 6        | 0.4628 | +0.0045     |
+| 5        | 0.4382 | -0.0246     |
+| 4        | 0.4464 | +0.0082     |
+| 3        | 0.4451 | -0.0013     |
+| 2        | 0.4523 | +0.0072     |
+| 1        | 0.2334 | -0.2189     |
+
+: R^2^ scores at each RFE iteration
+
+The elimination order was: age, s6, s3, s4, sex, bp, s2, s1, s5.
+
+### Optimal Number of Features
+
+Using a threshold of 0.01 for significant R^2^ improvement, the optimal number of features is **6** (sex, bmi, bp, s1, s2, s5), achieving R^2^ = 0.4628 -- slightly higher than the full model.
+
+## Feature Importance Analysis
+
+The top 3 features identified by RFE (last three surviving) are:
+
+1. **bmi** (Body Mass Index) -- a well-established risk factor for diabetes and insulin resistance.
+2. **s1** (total serum cholesterol) -- cholesterol levels are closely tied to metabolic health and diabetes complications.
+3. **s5** (log of serum triglycerides) -- elevated triglycerides are a hallmark of metabolic syndrome.
+
+These match the top 3 by absolute coefficient in the full model, suggesting robust importance regardless of feature interactions.
+
+## Reflection
+
+**What I learned about RFE:** Removing features does not always hurt model performance. R^2^ remained stable (and even improved slightly) through the first several eliminations, indicating redundancy among features. RFE provides a clear, interpretable feature ranking.
+
+**RFE vs. LASSO:** RFE is a wrapper method that retrains the model at each step, while LASSO is an embedded method that zeros out coefficients via L1 regularization in a single pass. LASSO is faster but sensitive to its alpha hyperparameter. RFE gives an explicit elimination ordering, making it easier to choose any desired number of features.
+
+**Dataset insights:** The diabetes dataset's effective dimensionality is much lower than 10. Body composition (bmi) and blood lipid markers (s1, s5) are the primary predictors of disease progression, consistent with medical understanding of diabetes risk factors. Several blood serum features are likely correlated and can be safely removed without loss of predictive power.
