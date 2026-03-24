@@ -1,0 +1,227 @@
+---
+title: "Assignment 3: Block-wise SVD Image Compression"
+subtitle: "MATH 485 — Spring 2026"
+format:
+  pdf:
+    geometry:
+      - margin=0.75in
+    fontsize: 11pt
+    code-block-bg: "#f5f5f5"
+    code-block-border-left: "#cccccc"
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+## Implementation Summary
+
+1. **Preprocessing**: Load image, convert to grayscale, center-crop so both dimensions are divisible by the block size.
+2. **Block-wise SVD**: Partition the image into non-overlapping 8×8 blocks. For each block, compute the SVD and reconstruct using only the top-$k$ singular values.
+3. **Metrics**: For each $k \in \{1, \dots, 8\}$, compute:
+   - Compression Ratio $= \frac{n^2}{k(2n + 1)}$ where $n$ is the block size
+   - Reconstruction Error (Frobenius norm): $\|A - \hat{A}_k\|_F$
+   - PSNR (Peak Signal-to-Noise Ratio)
+4. **Extended analysis** with 4×4 and 16×16 block sizes.
+
+```{r}
+library(jpeg)
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(kableExtra)
+```
+
+
+```{r}
+# ── Preprocessing ──────────────────────────────────────────────
+img <- readJPEG("doggo.jpeg")
+# Convert to grayscale via luminance weights
+A <- 0.299 * img[,,1] + 0.587 * img[,,2] + 0.114 * img[,,3]
+A <- A * 255  # scale to 0-255
+
+# Crop to nearest multiple of 8
+nr <- (nrow(A) %/% 8) * 8
+nc <- (ncol(A) %/% 8) * 8
+row_off <- (nrow(A) - nr) %/% 2
+col_off <- (ncol(A) - nc) %/% 2
+A <- A[(row_off + 1):(row_off + nr), (col_off + 1):(col_off + nc)]
+```
+
+Key code chunk: 
+
+```{r, echo=TRUE}
+# ── Block-wise SVD functions ──────────────────────────────────
+compress_block <- function(block, k) {
+  s <- svd(block)
+  # Reconstruct with top-k singular values
+  s$u[, 1:k, drop = FALSE] %*% diag(s$d[1:k], nrow = k) %*% t(s$v[, 1:k, drop = FALSE])
+}
+
+blockwise_svd <- function(A, block_size, k) {
+  recon <- matrix(0, nrow(A), ncol(A))
+  for (i in seq(1, nrow(A), by = block_size)) {
+    for (j in seq(1, ncol(A), by = block_size)) {
+      rows <- i:(i + block_size - 1)
+      cols <- j:(j + block_size - 1)
+      recon[rows, cols] <- compress_block(A[rows, cols], k)
+    }
+  }
+  recon
+}
+
+# ── Metric functions ──────────────────────────────────────────
+comp_ratio <- function(block_size, k) {
+  block_size^2 / (k * (2 * block_size + 1))
+}
+```
+
+
+```{r}
+frob_error <- function(A, A_hat) {
+  sqrt(sum((A - A_hat)^2))
+}
+
+calc_psnr <- function(A, A_hat, max_val = 255) {
+  mse <- mean((A - A_hat)^2)
+  if (mse == 0) return(Inf)
+  10 * log10(max_val^2 / mse)
+}
+```
+
+
+```{r}
+# ── Run compression for k = 1..8 ─────────────────────────────
+BLOCK_SIZE <- 8
+k_vals <- 1:BLOCK_SIZE
+results <- data.frame(k = k_vals, Ratio = NA, Frob_Error = NA, PSNR = NA)
+recons <- list()
+
+for (k in k_vals) {
+  recon <- blockwise_svd(A, BLOCK_SIZE, k)
+  recons[[k]] <- recon
+  results$Ratio[k]      <- comp_ratio(BLOCK_SIZE, k)
+  results$Frob_Error[k] <- frob_error(A, recon)
+  results$PSNR[k]       <- calc_psnr(A, recon)
+}
+```
+
+## Compression Analysis
+
+```{r}
+display_df <- data.frame(
+  k = results$k,
+  `Compression Ratio` = sprintf("%.2f×", results$Ratio),
+  `Frobenius Error` = sprintf("%.1f", results$Frob_Error),
+  `PSNR (dB)` = sprintf("%.2f", results$PSNR),
+  check.names = FALSE
+)
+kable(display_df, align = "cccc", booktabs = TRUE) |>
+  kable_styling(latex_options = c("hold_position"), font_size = 10)
+```
+
+Only $k=1$ (3.76×) and $k=2$ (1.88×) achieve meaningful compression. At $k=3$ the ratio drops to 1.25×. For $k \geq 4$, the retained SVD components exceed the original 64 values per block — no compression benefit.
+
+Reconstruction quality improves rapidly: PSNR rises from ~30 dB at $k=1$ to ~40 dB at $k=3$ to ~51 dB at $k=5$. By $k=7$ the Frobenius error is near-zero.
+
+## Reconstructed Images
+
+```{r}
+#| fig-height: 7
+#| fig-width: 7
+#| fig-cap: "Reconstructions for k=1 through k=8 (8×8 blocks)"
+par(mfrow = c(3, 3), mar = c(0.5, 0.5, 1.5, 0.5))
+
+# Original
+image(t(A[nrow(A):1, ]), col = gray.colors(256), axes = FALSE)
+title("Original", cex.main = 0.9)
+
+# k = 1..8
+for (k in k_vals) {
+  img_k <- pmin(pmax(recons[[k]], 0), 255)
+  image(t(img_k[nrow(img_k):1, ]), col = gray.colors(256), axes = FALSE)
+  title(paste0("k=", k), cex.main = 0.9)
+}
+```
+
+## Metric Plots
+
+```{r}
+#| fig-height: 3
+#| fig-width: 10
+#| fig-cap: "Compression ratio, reconstruction error, and PSNR vs. k"
+p1 <- ggplot(results, aes(k, Ratio)) +
+  geom_line(color = "steelblue") + geom_point(color = "steelblue") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "gray50") +
+  scale_x_continuous(breaks = k_vals) +
+  labs(y = "Compression Ratio", title = "Compression Ratio vs. k") +
+  theme_minimal(base_size = 9)
+
+p2 <- ggplot(results, aes(k, Frob_Error)) +
+  geom_line(color = "firebrick") + geom_point(color = "firebrick", shape = 15) +
+  scale_x_continuous(breaks = k_vals) +
+  labs(y = "Frobenius Norm Error", title = "Reconstruction Error vs. k") +
+  theme_minimal(base_size = 9)
+
+p3 <- ggplot(results, aes(k, PSNR)) +
+  geom_line(color = "seagreen") + geom_point(color = "seagreen", shape = 17) +
+  scale_x_continuous(breaks = k_vals) +
+  labs(y = "PSNR (dB)", title = "PSNR vs. k") +
+  theme_minimal(base_size = 9)
+
+grid.arrange(p1, p2, p3, ncol = 3)
+```
+
+## Block Size Comparison
+
+```{r}
+#| fig-height: 3
+#| fig-width: 10
+#| fig-cap: "Metrics across 4×4, 8×8, and 16×16 block sizes"
+block_sizes <- c(4, 8, 16)
+cmp <- data.frame()
+
+for (bs in block_sizes) {
+  # Crop to divisible dimensions
+  nr_c <- (nrow(A) %/% bs) * bs
+  nc_c <- (ncol(A) %/% bs) * bs
+  A_c <- A[1:nr_c, 1:nc_c]
+  for (k in 1:bs) {
+    recon <- blockwise_svd(A_c, bs, k)
+    cmp <- rbind(cmp, data.frame(
+      block = paste0(bs, "×", bs),
+      k = k,
+      ratio = comp_ratio(bs, k),
+      error = frob_error(A_c, recon),
+      psnr_val = calc_psnr(A_c, recon)
+    ))
+  }
+}
+```
+
+
+```{r}
+p1 <- ggplot(cmp, aes(k, ratio, color = block)) +
+  geom_line() + geom_point(size = 1.5) +
+  labs(y = "Compression Ratio", title = "Compression Ratio vs. k", color = NULL) +
+  theme_minimal(base_size = 9) + theme(legend.position = "bottom")
+
+p2 <- ggplot(cmp, aes(k, error, color = block)) +
+  geom_line() + geom_point(size = 1.5) +
+  labs(y = "Frobenius Error", title = "Reconstruction Error vs. k", color = NULL) +
+  theme_minimal(base_size = 9) + theme(legend.position = "bottom")
+
+p3 <- ggplot(cmp, aes(k, psnr_val, color = block)) +
+  geom_line() + geom_point(size = 1.5) +
+  labs(y = "PSNR (dB)", title = "PSNR vs. k", color = NULL) +
+  theme_minimal(base_size = 9) + theme(legend.position = "bottom")
+```
+
+
+```{r}
+grid.arrange(p1, p2, p3, ncol = 3)
+```
+
+Larger blocks (16×16) achieve higher compression ratios at the same $k$, but introduce more visible blocking artifacts. Smaller blocks (4×4) compress less — fewer singular values to truncate — but preserve local detail better.
+
+
