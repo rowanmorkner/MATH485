@@ -1,0 +1,55 @@
+---
+title: "Assignment 4: Customer Churn Prediction with XGBoost"
+author: "Rowan Morkner"
+date: "2026-04-10"
+format:
+  pdf:
+    geometry: margin=0.75in
+    fontsize: 10pt
+    linestretch: 1.1
+---
+
+## Problem & Data
+
+The IBM Telco Customer Churn dataset (7,043 customers, 19 features) is used to predict whether a customer will churn. This is a **binary classification** problem with class imbalance: 73% No Churn vs 27% Churn. Features include contract type, tenure, internet service, monthly charges, and various add-on services. `TotalCharges` was converted from string to numeric, and `customerID` was dropped.
+
+## Evaluation Metric: Recall
+
+**Recall** was chosen as the primary metric because the cost of missing a churner (lost revenue, no chance to intervene) far exceeds the cost of a false alarm (offering a retention deal to a loyal customer). With 73/27 class imbalance, accuracy is misleading — a naive "predict No Churn" model achieves 73% accuracy while catching zero churners.
+
+## Preprocessing & Models
+
+Numeric features (tenure, MonthlyCharges, TotalCharges, SeniorCitizen) were median-imputed and standardized. Categorical features (15 columns) were one-hot encoded. Data was split 80/20 with stratification.
+
+- **Baseline**: Logistic Regression (`max_iter=1000`)
+- **XGBoost**: Tuned via `GridSearchCV` (scoring=recall, 3-fold CV) over `n_estimators`, `max_depth`, `learning_rate`, and `scale_pos_weight`
+
+Best hyperparameters: `n_estimators=100`, `max_depth=3`, `learning_rate=0.01`, `scale_pos_weight=3`
+
+## Results
+
+| Metric    | Logistic Regression | XGBoost |
+|-----------|:-------------------:|:-------:|
+| Accuracy  | 0.8055              | 0.7111  |
+| Precision | 0.6572              | 0.4744  |
+| **Recall**| **0.5588**          | **0.8182** |
+| F1-Score  | 0.6040              | 0.6006  |
+| ROC-AUC   | 0.8419              | 0.8368  |
+
+XGBoost catches **306 of 374 churners** (82%) vs logistic regression's 209 (56%). The tradeoff is lower precision (more false alarms), but for churn prevention this is the right direction. F1 and ROC-AUC are nearly identical, confirming XGBoost isn't worse overall — just tuned to prioritize the minority class via `scale_pos_weight`.
+
+## Top Features
+
+| Rank | Feature                        | Importance |
+|------|--------------------------------|:----------:|
+| 1    | Contract: Month-to-month       | 0.562      |
+| 2    | InternetService: Fiber optic   | 0.092      |
+| 3    | TechSupport: No                | 0.087      |
+| 4    | OnlineSecurity: No             | 0.064      |
+| 5    | tenure                         | 0.044      |
+
+**Month-to-month contracts** dominate — customers with no commitment churn at far higher rates. **Fiber optic** customers and those **without add-on services** (tech support, online security, online backup) are also high-risk. Short **tenure** and **electronic check** payment further signal churn risk.
+
+## Conclusion
+
+XGBoost with `scale_pos_weight=3` significantly outperforms logistic regression on recall while maintaining comparable ROC-AUC. The model identifies actionable retention levers: incentivize longer contracts, bundle add-on services, and target newer customers with retention offers. A limitation of XGBoost is reduced interpretability — feature importances show relative contribution but not directionality, unlike logistic regression's signed coefficients.
