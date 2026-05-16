@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(eza:*)",
+      "Bash(for d:*)",
+      "Bash(do mkdir:*)",
+      "Bash(done)",
+      "Bash(python3:*)",
+      "Bash(pip3 install:*)"
+    ]
+  }
+}
